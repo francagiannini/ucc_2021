@@ -1,0 +1,219 @@
+---
+title: "Regresión logistica"
+author: "FGK"
+date: "06/06/2020"
+output:
+  html_document: 
+    highlight: espresso
+    theme: yeti
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align ="center")
+```
+
+
+La regresión logística, también llamada modelo logit, se usa para modelar variables de resultado dicotómicas. En el modelo logit, las probabilidades de registro del resultado se modelan como una combinación lineal de las variables predictoras.
+
+Vamos a trabajar con el siguiente ejemplo:
+Un investigador está interesado en cómo las variables: GRE (puesto en el ranking de notas del periodo de formación de grado), GPA (promedio de calificaciones durante la carrera de grado) y el prestigio de la institución de pregrado, afectan la admisión a un posgrado. La variable de respuesta, admisión / no admisión, y por lo tanto es una variable binaria.
+
+
+### Lectura de datos
+
+Nota: kable es solo una función para mejorar la visualización de las tablas
+```{r, message=FALSE}
+admision <- read.csv("C:/Users/franc/Dropbox/Franca/UCC/CLASES FRAN/Practica_I/data/binary.csv")
+
+library(knitr)
+kable(head(admision))
+```
+
+Este conjunto de datos tiene una variable de respuesta binaria (resultado, dependiente) llamada admitir. Hay tres variables predictoras: GRE, GPA y ranking. Trataremos las variables GRE y GPA como continuas. El ranking variable toma los valores del 1 al 4. Las instituciones con un ranking de 1 tienen el mayor prestigio, mientras que aquellas con un ranking de 4 tienen el más bajo. 
+
+Podemos obtener estadísticos descriptivos de posición para todo el conjunto de datos mediante el uso de `summary()`. Para obtener las desviaciones estándar, usamos `sapply()` para aplicar la función `sd` a cada variable en el conjunto de datos.
+
+## Estadística resumen
+```{r, message=FALSE}
+kable(summary(admision))
+
+kable(sapply(admision, sd))
+```
+
+Podemos también realizar una tabla de contingencia de dos vias para analizar las frecuencias absolutas.
+
+## Tabla de contingencia
+```{r, message=FALSE}
+tab <- xtabs(~admit + rank, data = admision); tab
+#table(admision$admit, admision$rank)
+```
+
+Para probar independencia entre estas variables hacemos una prueba chi-cuadrado
+
+```{r}
+plot(tab)
+
+chisq.test(tab)
+```
+
+## Método
+
+El siguiente código estima un modelo de regresión logística utilizando la función `glm()` (modelo lineal generalizado). Primero, convertimos el ranking en un factor para indicar que el ranking debe tratarse como una variable categórica.
+
+### Ajuste del modelo
+```{r, message=FALSE}
+admision$rank <- factor(admision$rank)
+admision_logit <- glm(admit ~ gre + gpa + rank, data = admision, family = "binomial")
+```
+
+Como le dimos un nombre a nuestro modelo *admision_logit*, R no producirá ningún resultado de nuestra regresión. Para obtener los resultados, utilizamos el comando de resumen:
+
+```{r, message=FALSE}
+summary(admision_logit)
+```
+
+En el resultado anterior, lo primero que vemos es la llamada, esto es R recordándonos cuál era el modelo que ejecutamos, qué opciones especificamos, etc.
+A continuación, vemos los residuos de desviación, que son una medida del ajuste del modelo. Esta parte del resultado muestra la distribución de los residuos de desviación para casos individuales utilizados en el modelo. 
+
+La siguiente parte de la salida muestra los coeficientes o parámetros estimados del modelo, sus errores estándar, el estadístico $Z$ (a veces llamado estadístico $Z$ de Wald) y los $p-valores$ asociados. 
+
+Tanto GRE como GPA son estadísticamente significativos, al igual que los tres términos para el ranking. Los coeficientes de regresión logística dan el cambio en las probabilidades de ser admitido para un aumento de una unidad en la variable predictora.
+
+- Por cada cambio de unidad en GRE, las probabilidades de admisión (versus no admisión) aumentan en 0.002.
+
+- Para un aumento de una unidad en GPA, las probabilidades de registro de ser admitido en la escuela de posgrado aumentan en 0.804.
+
+- Las variables indicadoras para el ranking tienen una interpretación ligeramente diferente. Por ejemplo, haber asistido a una institución de pregrado con un ranking de 2, versus una institución con un ranking de 1, cambia las probabilidades de admisión logarítmicas en -0.675.
+
+Debajo de la tabla de coeficientes hay índices de ajuste, incluidos los residuos nulos y de desviación y el AIC. Más adelante mostramos un ejemplo de cómo puede usar estos valores para ayudar a evaluar el ajuste del modelo.
+
+Podemos usar la función `confint()` para obtener intervalos de confianza para las estimaciones de coeficientes. También podemos obtener IC basados solo en los errores estándar mediante el método predeterminado.
+
+### intervalos de confianza para los coeficientes
+
+```{r, message=FALSE}
+kable(confint(admision_logit))
+```
+
+También podemos probar un efecto general del ranking usando la función `wald.test()` de la biblioteca `aod`. El orden en que se dan los coeficientes en la tabla de coeficientes es el mismo que el orden de los términos en el modelo. Esto es importante porque la función wald.test se refiere a los coeficientes por su orden en el modelo. Usamos la función `wald.test.(b=...)` ya que proporciona los coeficientes, mientras que `Sigma=...` proporciona la matriz de covarianza de varianza de los términos de error, finalmente `Terms=..` le dice a R qué términos en el modelo se van a probar, en este caso, los términos 4, 5 y 6 son los tres términos para los niveles de ranking.
+
+```{r, message=FALSE}
+library(aod)
+wald.test(b = coef(admision_logit), Sigma = vcov(admision_logit), Terms = 4:6)
+```
+
+El estadístico de prueba  $\chi^2$ de 20.9, con tres grados de libertad, está asociado con un $p-valor$ de 0.00011 que indica que el efecto general del ranking es estadísticamente significativo.
+
+### Hipótesis adicionales
+
+También podemos probar hipótesis adicionales sobre las diferencias en los coeficientes para los diferentes niveles de ranking. A continuación probamos que el coeficiente para el ranking = 2 es igual al coeficiente para el ranking = 3. La primera línea de código a continuación crea un vector `l` que define la prueba que queremos realizar. En este caso, queremos probar la diferencia (resta) de los términos para ranking = 2 y ranking = 3 (es decir, los términos cuarto y quinto en el modelo). Para contrastar estos dos términos, multiplicamos uno de ellos por 1 y el otro por -1. Los otros términos en el modelo no están involucrados en la prueba, por lo que se multiplican por 0. La segunda línea de código a continuación usa `L = l` para decirle a R que deseamos basar la prueba en el vector `l` (en lugar de usar los Términos opción como lo hicimos anteriormente).
+
+```{r, message=FALSE}
+l <- cbind(0, 0, 0, 1, -1, 0)
+wald.test(b = coef(admision_logit), Sigma = vcov(admision_logit), L = l)
+```
+
+El estadístico de prueba de $\chi^2$ cuadrado de 5.5 con 1 grado de libertad está asociado con un $p-valor$ de 0.019, lo que indica que la diferencia entre el coeficiente para el ranking = 2 y el coeficiente para el ranking = 3 es estadísticamente significativa.
+
+## ODDS ratio
+
+También podemos mostrar los coeficientes e interpretarlos como odds-ratios. Para obtener los coeficientes ya exponenciados, utilizamos `exp()`. Podemos usar la misma lógica para obtener odds ratios y sus intervalos de confianza, exponenciados los intervalos de confianza anteriores. Para ponerlo todo en una tabla, usamos `cbind()` para unir los coeficientes y los intervalos de confianza en forma de columna.
+
+```{r, message=FALSE}
+kable(exp(coef(admision_logit)))
+
+kable(exp(cbind(OR = coef(admision_logit), confint(admision_logit))))
+```
+
+Ahora podemos decir que para un aumento de una unidad en GPA, las probabilidades de ser admitido en la escuela de posgrado (versus no ser admitido) aumentan en un factor de 2.23. 
+
+## Probabilidades predichas
+
+También se pueden usar las probabilidades predichas para comprender el modelo. Las probabilidades predichas se pueden calcular para variables predictoras categóricas y continuas. Para generar probabilidades predichas, primero necesitamos crear un nuevo conjunto de datos con los valores que queremos que asuman las variables independientes para crear nuestras predicciones.
+
+Comenzaremos calculando la probabilidad predicha de admisión en cada valor de ranking, manteniendo GRE y GPA en sus valores medios. 
+
+### Primero creamos y vemos el conjunto de datos.
+
+```{r, message=FALSE}
+newdata1 <- with(admision, data.frame(gre = mean(gre), gpa = mean(gpa), rank = factor(1:4)))
+
+kable(newdata1)
+```
+
+Estos objetos deben tener los mismos nombres que las variables en su regresión logística anterior (por ejemplo, en este ejemplo, la media de `gre` debe llamarse `gre`). Ahora que tenemos el conjunto de datos que queremos usar para calcular las probabilidades predichas, podemos decirle a R que cree las probabilidades predichas. 
+
+La primera línea de código a continuación es bastante compacta, la separaremos para analizar qué hacen los diversos componentes. `newdata1$rankP` le dice a R que queremos crear una nueva variable en el conjunto de datos `newdata1` llamado `rankP`, el resto del comando le dice a R que los valores de `rankP` deben ser predicciones hechas con la función `predict()`. Las opciones entre paréntesis le dicen a R que las predicciones deben basarse en el análisis `admision_logit` con valores de las variables predictoras que provienen de `newdata1` y que el tipo de predicción es una probabilidad predicha `tipo = "respuesta"`. La segunda línea del código enumera los valores en el marco de datos `newdata1`. 
+
+```{r, message=FALSE}
+newdata1$rankP <- predict(admision_logit, newdata = newdata1, type = "response")
+
+kable(newdata1)
+```
+
+En el resultado anterior, vemos que la probabilidad predicha de ser aceptado en un programa de posgrado es 0.52 para estudiantes de las instituciones de pregrado de mayor prestigio (ranking = 1) y 0.18 para estudiantes de las instituciones de menor ranking (ranking = 4), con GRE y GPA en sus medios. 
+
+Podemos hacer algo muy similar para crear una tabla de probabilidades predichas que varíen el valor de GRE y ranking. Vamos a trazar estos, por lo que crearemos 100 valores de GRE entre 200 y 800, en cada valor de ranking (es decir, 1, 2, 3 y 4).
+
+
+```{r, message=FALSE}
+newdata2 <- with(admision, data.frame(gre = rep(seq(from = 200, to = 800, length.out = 100),
+    4), gpa = mean(gpa), rank = factor(rep(1:4, each = 100))))
+```
+
+El código para generar las probabilidades predichas es el mismo que antes, excepto que también vamos a pedir errores estándar para poder trazar un intervalo de confianza. Obtenemos las estimaciones en la escala del enlace y transformamos nuevamente los valores pronosticados y los límites de confianza en probabilidades.
+
+```{r, message=FALSE}
+newdata3 <- cbind(newdata2, predict(admision_logit, newdata = newdata2, type = "link",
+    se = TRUE))
+
+newdata3 <- within(newdata3, {
+    PredictedProb <- plogis(fit)
+    LL <- plogis(fit - (1.96 * se.fit))
+    UL <- plogis(fit + (1.96 * se.fit))
+})
+```
+
+También puede ser útil usar gráficos de probabilidades predichas para comprender y/o presentar el modelo. Usaremos el paquete ggplot2 para graficar. A continuación hacemos un gráfico con las probabilidades predichas y los intervalos de confianza del 95%.
+
+## Gráfico de probabilidades predichas
+
+
+```{r, message=FALSE}
+library(ggplot2)
+ggplot(newdata3, aes(x = gre, y = PredictedProb)) + 
+  geom_ribbon(aes(ymin = LL,
+    ymax = UL, fill = rank), alpha = 0.2) + 
+  geom_line(aes(colour = rank),
+    size = 1) +
+  labs(x="GRE", y="p(x)")
+  
+```
+
+También podemos ver medidas de qué tan bien se ajusta nuestro modelo. Esto puede ser particularmente útil al comparar modelos competidores. El resultado producido por el `summary(admision_logit)` incluía índices de  bondad de ajuste (mostrados debajo de los coeficientes). 
+
+Una medida para evaluar el ajuste del modelo es la significancia del modelo general. Esta prueba prueba si el modelo con predictores ajusta significativamente mejor que un modelo con solo una media general (modelo nulo). El estadístico de prueba es la diferencia entre la desviación residual para el modelo con predictores y el modelo nulo, se distribuye $\chi^2$ con tantos grados de libertad como las diferencias en grados de libertad entre el modelo actual y el modelo nulo (es decir, el número de variables predictoras en el modelo). Para encontrar la diferencia en la desviación para los dos modelos (es decir, el estadístico de prueba) podemos usar el comando:
+
+```{r, message=FALSE}
+with(admision_logit, null.deviance - deviance)
+```
+
+Los grados de libertad para la diferencia entre los dos modelos es igual al número de variables predictoras en el modo, y se puede obtener usando:
+
+```{r, message=FALSE}
+with(admision_logit, df.null - df.residual)
+```
+
+Finalmente, el $valor-p$ se puede obtener usando:
+
+```{r, message=FALSE}
+with(admision_logit, pchisq(null.deviance - deviance, df.null - df.residual, lower.tail = FALSE))
+```
+
+El chi-cuadrado de 41.46 con 5 grados de libertad y un $valor-p$ asociado de menos de 0.001 nos dice que nuestro modelo en su conjunto se ajusta significativamente mejor que un modelo vacío. Esto a veces se denomina prueba de razón de probabilidad (la desviación residual es -2 * probabilidad de registro). Para ver la probabilidad de registro del modelo, escribimos:
+
+```{r, message=FALSE}
+logLik(admision_logit)
+```

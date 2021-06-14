@@ -1,0 +1,252 @@
+---
+title: "Modelos"
+author: "FGK"
+date: "5/31/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Situación problema
+
+Los Estados Unidos cuentan con un registro permanente de casos de cáncer tomando cómo unidad de análisis el condado. El estado nacional proporciona y exige participar de un sistema para caracterizar la carga del cáncer de manera estandarizada con el objetivo de: motivar acciones e integrar políticas de monitoreo y planificación del control del cáncer. Se pretende a partir de esta información caracterizar áreas y grupos demográficos y exponer las disparidades en salud.
+
+El objetivo es proporcionar información para los planificadores de la salud quienes son los encargados de formular políticas y proveer de información que necesitan un acceso rápido y fácil a las estadísticas descriptivas del cáncer para priorizar las inversiones en el control. Los epidemiólogos pueden encontrar este sitio información útil para explorar estadísticas de cáncer y puede convertirse en una oportunidad para la investigación de la enfermedad.
+
+El sitio web (https://statecancerprofiles.cancer.gov/index.html) de Perfiles reúne los datos que se recopilan de los sistemas de vigilancia de salud pública mediante el uso de sus informes publicados o archivos de uso público. Los datos pueden aparecer fechados, pero es el más reciente el que ha completado los procesos nacionales de síntesis de datos y control de calidad.
+
+Esta es la fuente de la información que da origen a este trabajo práctico. La base de datos que se proporciona ha sido traducida y depurada de acuerdo los objetivos del trabajo.
+
+
+```{r}
+canUSA <- read.table("datos/cancer_usa_modelacion.1.txt", header = TRUE, sep="\t", dec=".")
+head(canUSA)
+```
+
+Para empezar: 
+¿Cuál es la Población?
+¿Cuál es la muestra?
+
+¿Qué variables identificaría como variables respuesta para responder al interrogante de
+cómo las causas socioeconómicas afectan la incidencia de cáncer?, ¿Y cómo variables explicativas?
+  
+# Descriptiva
+
+- Explorar las correlaciones entre variables.
+
+- Explorar las correlaciones entre variables mediante coeficientes de correlación lineal.
+
+```{r, message=FALSE}
+library(GGally)
+library(tidyverse)
+library(corrplot)
+
+cor <- canUSA %>% select_if(is.numeric) %>% cor()
+
+corrplot(cor, type = "upper",  tl.col = "black")
+
+```
+
+
+- Elegir un subgrupo de variables explicativas.
+
+Criterio! 
+```{r, message=FALSE, warning=FALSE}
+library(corrr)
+
+corr_mort <- canUSA %>% select_if(is.numeric)%>%
+  corrr::correlate() %>%
+  dplyr::slice_max(order_by = abs(Mortalidad_media_cada100mil), n=5) %>% 
+  dplyr::mutate(variable=term)
+
+var <- c(corr_mort$term, "Mortalidad_media_cada100mil")
+
+  canUSA %>% select(var) %>% 
+  GGally::ggpairs()
+
+
+corr_mort <- canUSA %>% select_if(is.numeric)%>%
+  corrr::correlate() %>%
+  corrr::focus(Mortalidad_media_cada100mil) %>% 
+  dplyr::slice_max(order_by = abs(Mortalidad_media_cada100mil), n=10)
+
+  ggplot(corr_mort,aes(term, Mortalidad_media_cada100mil)) +
+  geom_col(aes(fill = Mortalidad_media_cada100mil >= 0)) + # color segun sentido dela correlaciín
+  #theme(axis.text.x = element_text(angle = 90)) #+
+  coord_flip()+ylab("corr")
+```
+- Explorar las relaciones con variables categóricas entre variables.
+
+```{r}
+canUSA_est <- canUSA %>% 
+  tidyr::separate(Geografia..condado.estado.,into=c("condado", "estado") ,sep=",") %>% 
+  group_by(estado) %>%
+  filter(!n()==1) 
+
+canUSA_est %>% 
+  group_by(estado) %>%
+  summarise(mort_promedio = mean(Mortalidad_media_cada100mil), 
+            sd = sd(Mortalidad_media_cada100mil),
+            cv = sd(Mortalidad_media_cada100mil)/mean(Mortalidad_media_cada100mil)*100,
+            n=n())
+
+canUSA_est %>% 
+  ggplot(aes(x=estado,y=Mortalidad_media_cada100mil))+
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+
+# Modelos estadísticos de clasificación: 
+
+- Proponer un modelo para explicar la incidencia de cáncer por condado según el subgrupo de variables explicativas elegidas.
+
+
+Preguntas concretas a responder:
+
+- ¿Existe diferencia de la mortalidad de la enfermedad, entre los distintos estados?  Se pueden identificar grupos de comportamientos distintos?
+
+## Analisis de la varianza
+
+$$Mort_{ij}=\mu+Estado_{ij}+e_{ij}$$
+
+```{r}
+clas_can <- lm(Mortalidad_media_cada100mil~estado, data=canUSA_est)
+
+summary(clas_can)
+
+anova(clas_can)
+
+```
+Prueba a posteriori
+
+```{r}
+library(agricolae)
+
+LSD.test(clas_can,"estado" ,console = TRUE)
+
+```
+
+  
+- ¿Y en la incidencia? 
+
+
+- ¿Existe diferencia en los niveles de pobreza entre los distintos estados?
+
+Categorización regiones
+
+```{r}
+
+Northeast= c(' Connecticut', ' Maine', ' Massachusetts', ' New Hampshire', 
+' Rhode Island', ' Vermont', ' New Jersey', ' New York', ' Pennsylvania')
+
+Midwest=c(' Illinois', ' Indiana', ' Michigan', ' Ohio', ' Wisconsin', ' Iowa', ' Kansas', ' Minnesota', ' Missouri', ' Nebraska', ' North Dakota', ' South Dakota')
+
+South=c(' Delaware', ' Florida', ' Georgia', ' Maryland', ' North Carolina', ' South Carolina', ' Virginia', ' District of Columbia', ' West Virginia', ' Alabama', ' Kentucky', ' Mississippi', ' Tennessee',' Arkansas',' Louisiana', ' Oklahoma', ' Texas')
+
+West= c(' Arizona', ' Colorado', ' Idaho', ' Montana', ' Nevada', ' New Mexico', ' Utah', ' Wyoming', ' Alaska', ' California', ' Hawaii', ' Oregon', ' Washington')
+
+canUSA_est$region = ifelse(canUSA_est$estado %in% Northeast, "Northeast", 
+                      ifelse(canUSA_est$estado %in% Midwest, "Midwest",
+                        ifelse(canUSA_est$estado %in% South, "South",
+                            ifelse(canUSA_est$estado %in% West, "West",     
+                                     NA))))
+table(canUSA_est$region)
+
+```
+
+
+ANAVA regiones
+
+```{r}
+clas_can2 <- lm(Mortalidad_media_cada100mil~region, data=canUSA_est)
+
+summary(clas_can2)
+
+library(agricolae)
+LSD.test(clas_can2, "region" ,console = TRUE)
+
+```
+
+  
+# Modelo general.
+
+Proponer un modelo para explicar los niveles de pobreza por condado según índices socioeconómicos.
+
+Sin interacción
+```{r}
+
+#Modelo sin interacciones
+can_1 <- lm(Mortalidad_media_cada100mil~Porc_pobreza+Mediana_edad+region, canUSA_est)
+
+summary(can_1)
+
+
+can_2 <- lm(Mortalidad_media_cada100mil~Porc_pobreza+region, canUSA_est)
+
+summary(can_2)
+
+canUSA_est$pred_can_2 <- predict(can_2, canUSA_est)
+
+#plot(canUSA_est$Mortalidad_media_cada100mil,canUSA_est$pred_can_2)
+
+ggplot(canUSA_est, aes(x=Porc_pobreza, y=pred_can_2, color=region))+
+  geom_point()+
+  labs(y='Mortalidad predicha', x='Pobreza')
+
+LSD.test(can_2, "region", console = TRUE)
+
+```
+
+Con interacción 
+```{r}
+can_3 <- lm(Mortalidad_media_cada100mil~Porc_pobreza+region+Porc_pobreza:region , canUSA_est)
+
+anova(can_3)
+
+summary(can_3)
+
+canUSA_est$pred_can_3 <- predict(can_3, canUSA_est)
+
+ggplot(canUSA_est, aes(x=Porc_pobreza, y=pred_can_3, color=region))+
+  geom_point()+
+  labs(y='Mortalidad predicha', x='Pobreza')
+
+```
+
+
+Selección de modelo
+
+```{r}
+library(caret)
+
+canUSA_est_mod_sel <- canUSA_est %>% select(!condado)
+
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 5)
+# Entrenamiento 
+step.can <- train(Mortalidad_media_cada100mil~., data = canUSA_est_mod_sel,
+                    method = "lm", 
+                    tuneGrid = data.frame(nvmax = 1:5),
+                    trControl = train.control
+                    )
+#Desempeño 
+step.can$results
+
+# Modelo seleccinado
+summary(step.can$finalModel)
+
+```
+
+
+
+
+
+
+```
+
